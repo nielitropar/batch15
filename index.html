@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raftaar | IoT Dashboard</title>
+
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #101827;
+    color: white;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.dashboard {
+    width: 100%;
+    max-width: 450px;
+    background: #1c293b;
+    border-radius: 22px;
+    padding: 30px;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+}
+
+h1 {
+    text-align: center;
+    color: #00d4ff;
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    text-align: center;
+    color: #9caec4;
+    margin-bottom: 30px;
+}
+
+.connection {
+    text-align: center;
+    padding: 12px;
+    border-radius: 10px;
+    background: #303d50;
+    margin-bottom: 25px;
+    font-size: 14px;
+}
+
+.status {
+    text-align: center;
+    background: #26364a;
+    padding: 30px 15px;
+    border-radius: 15px;
+    margin-bottom: 25px;
+}
+
+.status h2 {
+    font-size: 15px;
+    color: #aabbd0;
+    margin-bottom: 15px;
+}
+
+#relayStatus {
+    font-size: 38px;
+    font-weight: bold;
+    color: #ff5252;
+}
+
+.buttons {
+    display: flex;
+    gap: 15px;
+}
+
+button {
+    flex: 1;
+    padding: 17px 10px;
+    border: none;
+    border-radius: 12px;
+    font-size: 17px;
+    font-weight: bold;
+    color: white;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+button:active {
+    transform: scale(0.96);
+}
+
+.on {
+    background: #16a34a;
+}
+
+.off {
+    background: #dc2626;
+}
+
+button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.settings {
+    margin-top: 30px;
+    border-top: 1px solid #40516a;
+    padding-top: 20px;
+}
+
+.settings h3 {
+    margin-bottom: 15px;
+    color: #00d4ff;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    margin: 7px 0;
+    background: #101827;
+    border: 1px solid #40516a;
+    border-radius: 8px;
+    color: white;
+    outline: none;
+}
+
+.connect {
+    width: 100%;
+    margin-top: 12px;
+    background: #087ea4;
+}
+
+.footer {
+    text-align: center;
+    color: #71839a;
+    font-size: 12px;
+    margin-top: 25px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="dashboard">
+
+    <h1>⚡ RAFTAAR IoT</h1>
+    <p class="subtitle">ESP32 Smart Relay Controller</p>
+
+    <div class="connection" id="connection">
+        🔴 MQTT Disconnected
+    </div>
+
+    <div class="status">
+        <h2>RELAY STATUS</h2>
+        <div id="relayStatus">OFF</div>
+    </div>
+
+    <div class="buttons">
+        <button class="on" id="onBtn" onclick="controlRelay('ON')" disabled>
+            ⚡ TURN ON
+        </button>
+
+        <button class="off" id="offBtn" onclick="controlRelay('OFF')" disabled>
+            TURN OFF
+        </button>
+    </div>
+
+    <div class="settings">
+        <h3>MQTT Configuration</h3>
+
+        <input id="host" placeholder="HiveMQ Cloud Hostname">
+        <input id="username" placeholder="MQTT Username">
+        <input id="password" type="password" placeholder="MQTT Password">
+
+        <button class="connect" onclick="connectMQTT()">
+            CONNECT TO ESP32
+        </button>
+    </div>
+
+    <div class="footer">
+        RAFTAAR IoT SYSTEM | POWERED BY ESP32
+    </div>
+
+</div>
+
+<script>
+
+const commandTopic = "raftaar/device01/relay/set";
+const statusTopic = "raftaar/device01/relay/status";
+
+let client = null;
+
+const connection = document.getElementById("connection");
+const relayStatus = document.getElementById("relayStatus");
+
+function setConnection(text, color) {
+    connection.innerHTML = text;
+    connection.style.color = color;
+}
+
+function connectMQTT() {
+
+    if (client) {
+        client.end(true);
+    }
+
+    const host = document.getElementById("host").value.trim();
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value;
+
+    if (!host || !username || !password) {
+        alert("Please enter all MQTT details!");
+        return;
+    }
+
+    setConnection("🟡 Connecting to HiveMQ...", "#facc15");
+
+    client = mqtt.connect("wss://" + host + ":8884/mqtt", {
+        username: username,
+        password: password,
+        clientId: "RaftaarWeb_" + Math.random().toString(16).slice(2),
+        clean: true,
+        connectTimeout: 10000,
+        reconnectPeriod: 3000
+    });
+
+    client.on("connect", function() {
+
+        setConnection("🟢 MQTT Connected", "#4ade80");
+
+        document.getElementById("onBtn").disabled = false;
+        document.getElementById("offBtn").disabled = false;
+
+        console.log("Connected to HiveMQ!");
+
+        client.subscribe(statusTopic, function(err) {
+            if (err) {
+                console.error("Subscription error:", err);
+            } else {
+                console.log("Subscribed:", statusTopic);
+            }
+        });
+
+    });
+
+    client.on("message", function(topic, message) {
+
+        if (topic === statusTopic) {
+
+            const state = message.toString();
+
+            updateStatus(state);
+
+            console.log("Relay Status:", state);
+        }
+
+    });
+
+    client.on("error", function(error) {
+
+        console.error("MQTT Error:", error);
+
+        setConnection("🔴 MQTT Connection Error", "#ff5252");
+
+    });
+
+    client.on("offline", function() {
+
+        setConnection("🔴 MQTT Offline", "#ff5252");
+
+        document.getElementById("onBtn").disabled = true;
+        document.getElementById("offBtn").disabled = true;
+
+    });
+
+    client.on("reconnect", function() {
+
+        setConnection("🟡 Reconnecting...", "#facc15");
+
+    });
+}
+
+function controlRelay(state) {
+
+    if (!client || !client.connected) {
+        alert("MQTT is not connected!");
+        return;
+    }
+
+    client.publish(commandTopic, state, { qos: 1 }, function(error) {
+
+        if (error) {
+            alert("Command failed!");
+            console.error(error);
+        } else {
+            console.log("Command sent:", state);
+        }
+
+    });
+
+}
+
+function updateStatus(state) {
+
+    if (state === "ON") {
+
+        relayStatus.innerText = "ON";
+        relayStatus.style.color = "#4ade80";
+
+    } else if (state === "OFF") {
+
+        relayStatus.innerText = "OFF";
+        relayStatus.style.color = "#ff5252";
+
+    }
+
+}
+
+</script>
+
+</body>
+</html>
